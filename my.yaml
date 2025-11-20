@@ -1,0 +1,132 @@
+application:
+  name: cribl-wgreplay
+  notifications:
+    - email: GCS_CORE@StateStreet.com
+    - email: GCS_DICE@StateStreet.com
+  dpeid: dpe0211
+  criblVersion: cribl-4.11.1-ac601674-linux-x64.tgz
+
+submodules:
+  - name: blueprint
+    path: blueprint
+    repo: https://git.cloud.statestreetlabs.com/CRIBL/wg-blueprint.git
+    branch: master
+
+modules:
+  - name: criblWGReplay
+    tool: shell
+    path: criblWGReplay
+
+criblWGReplay:
+  deployment:
+
+    - name: default
+      templateType: Universal_Templates
+      templateVersion: REL_250403
+
+      resources:
+        # ============================================
+        # ASG WITH SIMPLE SCALING (UPDATED HERE)
+        # ============================================
+        - name: criblwnreag
+          template_name: SSGS_Template_ASG.yml
+          parameters:
+            LaunchTemplateName: ${LTName}
+            LaunchTemplateVersion: ${LTVersion}
+            HealthCheckType: EC2
+            ASGDescriptor: criblreag
+            ScalingPolicyType: SimpleScaling          # CHANGED
+            SecondScalingPolicy: 'true'               # ENABLE 2 POLICIES
+
+        # ============================================
+        # SCALE-OUT ALARM (CPU > 90% FOR 5 min)
+        # ============================================
+        - name: criblReplayCWAlarmIncrease
+          template_name: SSGS_Template_CW_Alarm.yml
+          parameters:
+            ScalingPolicyARN: criblwnreag.Outputs.ScalingPolicy
+            AlarmDescriptor: cribl_replay_increase
+            ComparisonOperator: GreaterThanThreshold
+            MetricName: CPUUtilization
+            Namespace: AWS/EC2
+            Statistic: Average
+            Threshold: 90
+            DimensionName1: AutoScalingGroupName
+            DimensionValue1: criblwnreag.Outputs.ASGName
+            Unit: Percent
+            Period: 60                  # 1-minute CPU datapoint
+            EvaluationPeriods: 5        # 5 minutes total
+            AlarmDataAction: 'true'
+
+        # ============================================
+        # SCALE-IN ALARM (CPU < 40% FOR 10 min)
+        # ============================================
+        - name: criblReplayCWAlarmDecrease
+          template_name: SSGS_Template_CW_Alarm.yml
+          parameters:
+            ScalingPolicyARN: criblwnreag.Outputs.ScalingPolicy2
+            AlarmDescriptor: cribl_replay_decrease
+            ComparisonOperator: LessThanThreshold
+            MetricName: CPUUtilization
+            Namespace: AWS/EC2
+            Statistic: Average
+            Threshold: 40
+            DimensionName1: AutoScalingGroupName
+            DimensionValue1: criblwnreag.Outputs.ASGName
+            Unit: Percent
+            Period: 60                  # 1-minute CPU datapoint
+            EvaluationPeriods: 10       # 10 minutes total
+            AlarmDataAction: 'true'
+
+      outputs:
+        ASGNAME: criblwnreag.Outputs.ASGName
+
+      parameters:
+        deploy_type: create
+        app_region: us-east-1
+
+        DpeAppId: DPE_0211
+        DpeReleaseId: REL_000233
+        DpeCreatedBy: GCS_DICE@statestreet.com
+        AppGrpName: criblWGReplay
+        publicKey: ""
+        autoCreateAcm: true
+
+        stackParamsMapping:
+          - LTName:
+              stackName: ${DpeAppIdLowerCase}-${AppEnvNameLowerCase}-criblwgReplaylt-${sbx_env}-bycicd
+              stackOutputKey: LTName
+          - LTVersion:
+              stackName: ${DpeAppIdLowerCase}-${AppEnvNameLowerCase}-criblwgReplaylt-${sbx_env}-bycicd
+              stackOutputKey: LTVersion
+
+    - name: DEV
+      branch_name: integration
+      parameters: &DEVParams1UE1
+        ASGDesiredCapacity: 1
+        ASGMin: 1
+        ASGMax: 4
+        DpeEnvClass: DEV
+        AppEnvName: DEV
+
+    - name: UAT
+      branch_name: release
+      parameters: &UATParamsUE1
+        ASGDesiredCapacity: 1
+        ASGMin: 1
+        ASGMax: 4
+        DpeEnvClass: UAT
+        AppEnvName: UAT
+
+    - name: UAT
+      branch_name: hotfix
+      parameters: *UATParamsUE1
+
+    - name: PRD
+      branch_name: master
+      parameters:
+        ASGDesiredCapacity: 1
+        ASGMin: 1
+        ASGMax: 8
+        DpeEnvClass: PRD
+        AppEnvName: PRD
