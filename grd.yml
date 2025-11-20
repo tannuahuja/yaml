@@ -1,0 +1,64 @@
+****WGReplay:
+  deployment:
+
+    - name: default
+      templateType: Universal_Templates
+      templateVersion: REL_250403
+
+      resources:
+
+        # ASG WITH SIMPLE SCALING (UPDATED HERE)
+
+        - name: wnreag
+          template_name: SSGS_Template_ASG.yml
+          parameters:
+            LaunchTemplateName: ${LTName}
+            LaunchTemplateVersion: ${LTVersion}
+            HealthCheckType: EC2
+            ASGDescriptor: reag
+            ScalingPolicyType: SimpleScaling          
+            SecondScalingPolicy: 'true'               
+
+
+        
+        # SCALE-OUT ALARM (CPU > 90% FOR 5 min)
+      
+        - name: ReplayCWAlarmIncrease
+          template_name: SSGS_Template_CW_Alarm.yml
+          parameters:
+            ScalingPolicyARN: wnreag.Outputs.ScalingPolicy
+            AlarmDescriptor: _replay_increase
+            ComparisonOperator: GreaterThanThreshold
+            MetricName: CPUUtilization
+            Namespace: AWS/EC2
+            Statistic: Average
+            Threshold: 90
+            DimensionName1: AutoScalingGroupName
+            DimensionValue1: lwnreag.Outputs.ASGName
+            Unit: Percent
+            Period: 60                  # 1-minute CPU datapoint
+            EvaluationPeriods: 5        # 5 minutes total
+            AlarmDataAction: 'true'
+
+
+        # SCALE-IN ALARM (CPU < 40% FOR 10 min)
+
+        - name: ReplayCWAlarmDecrease
+          template_name: SSGS_Template_CW_Alarm.yml
+          parameters:
+            ScalingPolicyARN: .Outputs.ScalingPolicy2
+            AlarmDescriptor: _replay_decrease
+            ComparisonOperator: LessThanThreshold
+            MetricName: CPUUtilization
+            Namespace: AWS/EC2
+            Statistic: Average
+            Threshold: 40
+            DimensionName1: AutoScalingGroupName
+            DimensionValue1: .Outputs.ASGName
+            Unit: Percent
+            Period: 60                  
+            EvaluationPeriods: 10       
+            AlarmDataAction: 'true'
+
+      outputs:
+        ASGNAME: .Outputs.ASGName
